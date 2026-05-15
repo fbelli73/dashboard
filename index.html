@@ -830,92 +830,142 @@ async function caricaCrypto() {
   const attive = CRYPTOS.filter(c => c.active);
   if (!attive.length) return;
 
-  // Mappa simboli Binance (es. BTC → BTCUSDT)
-  const binanceSymbols = {
-    'BTC': 'BTCUSDT', 'ETH': 'ETHUSDT', 'SOL': 'SOLUSDT',
-    'MATIC': 'MATICUSDT', 'AVAX': 'AVAXUSDT'
-  };
+  // ============================================================
+  // Lista provider in ordine di priorità — prova uno alla volta
+  // ============================================================
+  const providers = [
 
-  try {
-    // Provo Binance prima — veloce, no API key, no proxy
-    const simboli = attive.map(c => `"${binanceSymbols[c.sym]}"`).join(',');
-    const url     = `https://api.binance.com/api/v3/ticker/24hr?symbols=[${simboli}]`;
-    const res     = await fetch(url);
-    if (!res.ok) throw new Error('Binance non disponibile');
-    const data = await res.json();
+    // 1. Binance — veloce, no API key
+    async () => {
+      const binanceSymbols = {
+        'BTC':'BTCUSDT','ETH':'ETHUSDT','SOL':'SOLUSDT',
+        'MATIC':'MATICUSDT','AVAX':'AVAXUSDT'
+      };
+      const simboli = attive.map(c => `"${binanceSymbols[c.sym]}"`).join(',');
+      const res  = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=[${simboli}]`);
+      if (!res.ok) throw new Error('Binance KO');
+      const data = await res.json();
+      return attive.map(c => ({
+        sym:   c.sym,
+        name:  c.name,
+        price: parseFloat(data.find(d => d.symbol===binanceSymbols[c.sym])?.lastPrice ?? 0),
+        chg:   parseFloat(data.find(d => d.symbol===binanceSymbols[c.sym])?.priceChangePercent ?? 0),
+        spark: [],
+      }));
+    },
 
-    // Aggiorno ticker e card
-    const grid = document.getElementById('market-grid');
-    grid.innerHTML = '';
-
-    attive.slice(0, 4).forEach((crypto, i) => {
-      const ticker = data.find(d => d.symbol === binanceSymbols[crypto.sym]);
-      if (!ticker) return;
-
-      const prezzo = parseFloat(ticker.lastPrice);
-      const chg24h = parseFloat(ticker.priceChangePercent).toFixed(2);
-      const cc     = parseFloat(chg24h) >= 0 ? 'chg-up' : 'chg-down';
-      const s      = parseFloat(chg24h) >= 0 ? '+' : '';
-
-      // Ticker bar
-      tickerData = tickerData.filter(t => t.sym !== crypto.sym);
-      tickerData.push({ sym: crypto.sym, name: crypto.name, price: formatPrice(prezzo), chg: chg24h });
-
-      // Card mercato
-      grid.innerHTML += `<div class="market-card">
-        <div class="mkt-name">${crypto.name} (${crypto.sym})</div>
-        <div class="mkt-price">${formatPrice(prezzo)}<span class="mkt-chg ${cc}">${s}${chg24h}%</span></div>
-        <div class="sparkline-wrap"><canvas id="spark-${crypto.sym}" role="img" aria-label="Andamento ${crypto.name}"></canvas></div>
-      </div>`;
-    });
-
-    renderTicker();
-
-    // Sparkline con dati demo (Binance non dà storici gratis)
-    attive.slice(0, 4).forEach(crypto => {
-      const ticker = data.find(d => d.symbol === binanceSymbols[crypto.sym]);
-      const chg    = ticker ? parseFloat(ticker.priceChangePercent) : 0;
-      disegnaSparkline(`spark-${crypto.sym}`, generaSparkDemo(chg), chg >= 0);
-    });
-
-  } catch(err) {
-    // Fallback su CoinGecko se Binance non risponde
-    console.warn('Binance fallito, provo CoinGecko:', err);
-    try {
+    // 2. CoinGecko — ha sparkline reali
+    async () => {
       const ids = attive.map(c => c.id).join(',');
       const res  = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&sparkline=true&price_change_percentage=7d`);
+      if (!res.ok) throw new Error('CoinGecko KO');
       const data = await res.json();
+      return data.map(coin => {
+        const cfg = CRYPTOS.find(c => c.id===coin.id);
+        return {
+          sym:   cfg.sym,
+          name:  cfg.name,
+          price: coin.current_price,
+          chg:   coin.price_change_percentage_7d_in_currency ?? 0,
+          spark: coin.sparkline_in_7d?.price ?? [],
+        };
+      });
+    },
+
+    // 3. Kraken — completamente pubblico, no API key
+    async () => {
+      const krakenPairs = {
+        'BTC':'XBTUSD','ETH':'ETHUSD','SOL':'SOLUSD',
+        'MATIC':'MATICUSD','AVAX':'AVAXUSD'
+      };
+      const pairs = attive.map(c => krakenPairs[c.sym]).join(',');
+      const res   = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${pairs}`);
+      if (!res.ok) throw new Error('Kraken KO');
+      const data  = await res.json();
+      if (data.error?.length) throw new Error('Kraken error');
+      return attive.map(c => {
+        // Kraken a volte usa nomi alternativi per le coppie
+        const key = Object.keys(data.result).find(k => k.includes(c.sym==='BTC'?'XBT':c.sym));
+        const t   = data.result[key];
+        return {
+          sym:   c.sym,
+          name:  c.name,
+          price: parseFloat(t?.c?.[0] ?? 0),
+          chg:   0, // Kraken non dà % change direttamente
+          spark: [],
+        };
+      }).filter(c => c.price > 0);
+    },
+
+    // 4. CoinPaprika — pubblico, no API key
+    async () => {
+      const paprikaIds = {
+        'BTC':'btc-bitcoin','ETH':'eth-ethereum','SOL':'sol-solana',
+        'MATIC':'matic-polygon','AVAX':'avax-avalanche'
+      };
+      const risultati = await Promise.all(
+        attive.map(c =>
+          fetch(`https://api.coinpaprika.com/v1/tickers/${paprikaIds[c.sym]}`)
+            .then(r => r.json())
+        )
+      );
+      return risultati.map((coin, i) => ({
+        sym:   attive[i].sym,
+        name:  attive[i].name,
+        price: coin.quotes?.USD?.price ?? 0,
+        chg:   coin.quotes?.USD?.percent_change_24h ?? 0,
+        spark: [],
+      }));
+    },
+
+  ];
+
+  // ============================================================
+  // Prova ogni provider in sequenza fino a che uno funziona
+  // ============================================================
+  for (let i = 0; i < providers.length; i++) {
+    try {
+      const risultati = await providers[i]();
+      if (!risultati?.length) throw new Error('Nessun dato');
+
+      // Funziona! Renderizzo i dati
+      const nomiProvider = ['Binance','CoinGecko','Kraken','CoinPaprika'];
+      console.log(`Crypto OK da ${nomiProvider[i]}`);
 
       const grid = document.getElementById('market-grid');
-      grid.innerHTML = data.slice(0, 4).map(coin => {
-        const cfg = CRYPTOS.find(c => c.id === coin.id);
-        const chg = (coin.price_change_percentage_7d_in_currency ?? 0).toFixed(2);
-        const cc  = parseFloat(chg) >= 0 ? 'chg-up' : 'chg-down';
-        const s   = parseFloat(chg) >= 0 ? '+' : '';
-        tickerData = tickerData.filter(t => t.sym !== cfg.sym);
-        tickerData.push({ sym: cfg.sym, name: cfg.name, price: formatPrice(coin.current_price), chg });
+      grid.innerHTML = risultati.slice(0, 4).map(c => {
+        const cc = c.chg >= 0 ? 'chg-up' : 'chg-down';
+        const s  = c.chg >= 0 ? '+' : '';
+        tickerData = tickerData.filter(t => t.sym !== c.sym);
+        tickerData.push({ sym: c.sym, name: c.name, price: formatPrice(c.price), chg: c.chg.toFixed(2) });
         return `<div class="market-card">
-          <div class="mkt-name">${cfg.name} (${cfg.sym})</div>
-          <div class="mkt-price">${formatPrice(coin.current_price)}<span class="mkt-chg ${cc}">${s}${chg}%</span></div>
-          <div class="sparkline-wrap"><canvas id="spark-${cfg.sym}" role="img" aria-label="Andamento ${cfg.name}"></canvas></div>
+          <div class="mkt-name">${c.name} (${c.sym})</div>
+          <div class="mkt-price">${formatPrice(c.price)}<span class="mkt-chg ${cc}">${s}${c.chg.toFixed(2)}%</span></div>
+          <div class="sparkline-wrap"><canvas id="spark-${c.sym}" role="img" aria-label="Andamento ${c.name}"></canvas></div>
         </div>`;
       }).join('');
 
       renderTicker();
 
-      data.slice(0, 4).forEach(coin => {
-        const cfg   = CRYPTOS.find(c => c.id === coin.id);
-        const spark = coin.sparkline_in_7d?.price ?? [];
-        const chg   = coin.price_change_percentage_7d_in_currency ?? 0;
-        disegnaSparkline(`spark-${cfg.sym}`, spark.length >= 2 ? spark : generaSparkDemo(chg), chg >= 0);
+      risultati.slice(0, 4).forEach(c => {
+        disegnaSparkline(`spark-${c.sym}`,
+          c.spark.length >= 2 ? c.spark : generaSparkDemo(c.chg),
+          c.chg >= 0
+        );
       });
 
-    } catch(err2) {
-      // Entrambi falliti
-      document.getElementById('market-grid').innerHTML =
-        '<p class="loading-msg">Dati crypto non disponibili — riprova tra qualche minuto.</p>';
+      return; // uscito — non prova i provider successivi
+
+    } catch(err) {
+      const nomiProvider = ['Binance','CoinGecko','Kraken','CoinPaprika'];
+      console.warn(`${nomiProvider[i]} fallito:`, err.message);
+      // continua al provider successivo
     }
   }
+
+  // Tutti e 4 falliti
+  document.getElementById('market-grid').innerHTML =
+    '<p class="loading-msg">Dati crypto non disponibili — tutti i provider offline. Riprova tra qualche minuto.</p>';
 }
 
 /* ============================================================
