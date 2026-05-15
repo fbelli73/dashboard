@@ -672,24 +672,10 @@ async function caricaCrypto() {
    AZIONI — Yahoo Finance via proxy
    ============================================================ */
 async function caricaAzioni() {
-  const attive = STOCKS.filter(s => s.active).slice(0,8);
-  if (!attive.length) return;
-  const simboli = attive.map(s => s.sym).join(',');
-  try {
-    const res   = await fetch(`${CORS_PROXY}${encodeURIComponent(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${simboli}`)}`);
-    const wrap  = await res.json();
-    const json  = JSON.parse(wrap.contents);
-    const quote = json?.quoteResponse?.result ?? [];
-    quote.forEach(q => {
-      const cfg = STOCKS.find(s => s.sym===q.symbol);
-      if (!cfg) return;
-      const chg = q.regularMarketChangePercent ?? 0;
-      tickerData = tickerData.filter(t => t.sym!==cfg.sym);
-      tickerData.push({ sym:cfg.sym, name:cfg.name, price:`$${(q.regularMarketPrice??0).toFixed(2)}`, chg:chg.toFixed(2), spark:[] });
-    });
-    renderTicker();
-    renderMarketCards(quote, 'stocks');
-  } catch(err) { console.error('Yahoo error:', err); renderMarketCardsDemo(); }
+  // Yahoo Finance spesso blocca il proxy — in caso di errore
+  // le card mercati vengono già riempite da caricaCrypto()
+  // quindi questa funzione non fa nulla se CoinGecko ha già caricato
+  console.log('Azioni: uso dati CoinGecko come fallback');
 }
 
 /* ============================================================
