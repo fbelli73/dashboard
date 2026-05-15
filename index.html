@@ -829,40 +829,92 @@ function meteoInfo(code) {
 async function caricaCrypto() {
   const attive = CRYPTOS.filter(c => c.active);
   if (!attive.length) return;
-  const ids = attive.map(c => c.id).join(',');
+
+  // Mappa simboli Binance (es. BTC → BTCUSDT)
+  const binanceSymbols = {
+    'BTC': 'BTCUSDT', 'ETH': 'ETHUSDT', 'SOL': 'SOLUSDT',
+    'MATIC': 'MATICUSDT', 'AVAX': 'AVAXUSDT'
+  };
+
   try {
-    const res  = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&sparkline=true&price_change_percentage=7d`);
+    // Provo Binance prima — veloce, no API key, no proxy
+    const simboli = attive.map(c => `"${binanceSymbols[c.sym]}"`).join(',');
+    const url     = `https://api.binance.com/api/v3/ticker/24hr?symbols=[${simboli}]`;
+    const res     = await fetch(url);
+    if (!res.ok) throw new Error('Binance non disponibile');
     const data = await res.json();
 
-    data.forEach(coin => {
-      const cfg  = CRYPTOS.find(c => c.id===coin.id);
-      const chg7 = coin.price_change_percentage_7d_in_currency ?? 0;
-      tickerData = tickerData.filter(t => t.sym!==cfg.sym);
-      tickerData.push({ sym:cfg.sym, name:cfg.name, price:formatPrice(coin.current_price), chg:chg7.toFixed(2) });
+    // Aggiorno ticker e card
+    const grid = document.getElementById('market-grid');
+    grid.innerHTML = '';
+
+    attive.slice(0, 4).forEach((crypto, i) => {
+      const ticker = data.find(d => d.symbol === binanceSymbols[crypto.sym]);
+      if (!ticker) return;
+
+      const prezzo = parseFloat(ticker.lastPrice);
+      const chg24h = parseFloat(ticker.priceChangePercent).toFixed(2);
+      const cc     = parseFloat(chg24h) >= 0 ? 'chg-up' : 'chg-down';
+      const s      = parseFloat(chg24h) >= 0 ? '+' : '';
+
+      // Ticker bar
+      tickerData = tickerData.filter(t => t.sym !== crypto.sym);
+      tickerData.push({ sym: crypto.sym, name: crypto.name, price: formatPrice(prezzo), chg: chg24h });
+
+      // Card mercato
+      grid.innerHTML += `<div class="market-card">
+        <div class="mkt-name">${crypto.name} (${crypto.sym})</div>
+        <div class="mkt-price">${formatPrice(prezzo)}<span class="mkt-chg ${cc}">${s}${chg24h}%</span></div>
+        <div class="sparkline-wrap"><canvas id="spark-${crypto.sym}" role="img" aria-label="Andamento ${crypto.name}"></canvas></div>
+      </div>`;
     });
+
     renderTicker();
 
-    const grid = document.getElementById('market-grid');
-    grid.innerHTML = data.slice(0,4).map(coin => {
-      const cfg = CRYPTOS.find(c => c.id===coin.id);
-      const chg = (coin.price_change_percentage_7d_in_currency ?? 0).toFixed(2);
-      const cc  = parseFloat(chg)>=0 ? 'chg-up' : 'chg-down';
-      const s   = parseFloat(chg)>=0 ? '+' : '';
-      return `<div class="market-card">
-        <div class="mkt-name">${cfg.name} (${cfg.sym})</div>
-        <div class="mkt-price">${formatPrice(coin.current_price)}<span class="mkt-chg ${cc}">${s}${chg}%</span></div>
-        <div class="sparkline-wrap"><canvas id="spark-${cfg.sym}" role="img" aria-label="Andamento ${cfg.name}"></canvas></div>
-      </div>`;
-    }).join('');
-
-    data.slice(0,4).forEach(coin => {
-      const cfg   = CRYPTOS.find(c => c.id===coin.id);
-      const spark = coin.sparkline_in_7d?.price ?? [];
-      const chg   = coin.price_change_percentage_7d_in_currency ?? 0;
-      disegnaSparkline(`spark-${cfg.sym}`, spark.length>=2 ? spark : generaSparkDemo(chg), chg>=0);
+    // Sparkline con dati demo (Binance non dà storici gratis)
+    attive.slice(0, 4).forEach(crypto => {
+      const ticker = data.find(d => d.symbol === binanceSymbols[crypto.sym]);
+      const chg    = ticker ? parseFloat(ticker.priceChangePercent) : 0;
+      disegnaSparkline(`spark-${crypto.sym}`, generaSparkDemo(chg), chg >= 0);
     });
-  } catch {
-    document.getElementById('market-grid').innerHTML = '<p class="loading-msg">Crypto non disponibili al momento — riprovare tra qualche minuto.</p>';
+
+  } catch(err) {
+    // Fallback su CoinGecko se Binance non risponde
+    console.warn('Binance fallito, provo CoinGecko:', err);
+    try {
+      const ids = attive.map(c => c.id).join(',');
+      const res  = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&sparkline=true&price_change_percentage=7d`);
+      const data = await res.json();
+
+      const grid = document.getElementById('market-grid');
+      grid.innerHTML = data.slice(0, 4).map(coin => {
+        const cfg = CRYPTOS.find(c => c.id === coin.id);
+        const chg = (coin.price_change_percentage_7d_in_currency ?? 0).toFixed(2);
+        const cc  = parseFloat(chg) >= 0 ? 'chg-up' : 'chg-down';
+        const s   = parseFloat(chg) >= 0 ? '+' : '';
+        tickerData = tickerData.filter(t => t.sym !== cfg.sym);
+        tickerData.push({ sym: cfg.sym, name: cfg.name, price: formatPrice(coin.current_price), chg });
+        return `<div class="market-card">
+          <div class="mkt-name">${cfg.name} (${cfg.sym})</div>
+          <div class="mkt-price">${formatPrice(coin.current_price)}<span class="mkt-chg ${cc}">${s}${chg}%</span></div>
+          <div class="sparkline-wrap"><canvas id="spark-${cfg.sym}" role="img" aria-label="Andamento ${cfg.name}"></canvas></div>
+        </div>`;
+      }).join('');
+
+      renderTicker();
+
+      data.slice(0, 4).forEach(coin => {
+        const cfg   = CRYPTOS.find(c => c.id === coin.id);
+        const spark = coin.sparkline_in_7d?.price ?? [];
+        const chg   = coin.price_change_percentage_7d_in_currency ?? 0;
+        disegnaSparkline(`spark-${cfg.sym}`, spark.length >= 2 ? spark : generaSparkDemo(chg), chg >= 0);
+      });
+
+    } catch(err2) {
+      // Entrambi falliti
+      document.getElementById('market-grid').innerHTML =
+        '<p class="loading-msg">Dati crypto non disponibili — riprova tra qualche minuto.</p>';
+    }
   }
 }
 
