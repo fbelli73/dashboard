@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fabio's Dashboard</title>
+
+<!-- Google Identity Services per OAuth Gmail + Calendar -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
+<style>
+  :root {
+    --bg-page:        #f0ece4;
+    --bg-card:        #faf8f4;
+    --bg-news:        #fdf6ee;
+    --bg-market:      #eef4f0;
+    --bg-mail:        #f4eef4;
+    --bg-cal:         #eef1f8;
+    --bg-proj:        #f8f0ee;
+    --bg-meteo:       #eef4f8;
+    --bg-ticker:      #2c2c2a;
+    --accent-green:   #2d7a4f;
+    --accent-red:     #c0392b;
+    --accent-blue:    #2756a0;
+    --accent-purple:  #5c3d8f;
+    --text-main:      #1a1a18;
+    --text-secondary: #5a5a54;
+    --text-muted:     #8a8a80;
+    --border:         rgba(0,0,0,0.08);
+    --border-strong:  rgba(0,0,0,0.14);
+    --shadow:         0 1px 4px rgba(0,0,0,0.07);
+    --radius:         10px;
+    --radius-sm:      6px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Georgia', 'Times New Roman', serif;
+    background: var(--bg-page);
+    color: var(--text-main);
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* TICKER */
+  #ticker-bar {
+    background: var(--bg-ticker);
+    color: #e8e8e0;
+    padding: 0 16px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  #ticker-bar .ticker-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #888780;
+    white-space: nowrap;
+    padding-right: 12px;
+    border-right: 1px solid #444;
+    margin-right: 12px;
+    flex-shrink: 0;
+  }
+  .ticker-track {
+    display: flex;
+    animation: ticker-scroll 60s linear infinite;
+    white-space: nowrap;
+  }
+  .ticker-track:hover { animation-play-state: paused; }
+  @keyframes ticker-scroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+  .ticker-item { display:inline-flex; align-items:center; gap:6px; padding:0 16px; font-size:12px; border-right:1px solid #3a3a38; }
+  .ticker-name  { font-weight:bold; color:#d4d0c8; }
+  .ticker-price { color:#b8b4ac; }
+  .ticker-up    { color:#4caf7d; font-size:11px; }
+  .ticker-down  { color:#e57373; font-size:11px; }
+
+  /* HEADER */
+  #header {
+    padding: 14px 20px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-card);
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  #header h1 { font-size:20px; font-weight:normal; letter-spacing:0.02em; }
+  #header h1 span { color:var(--accent-blue); font-style:italic; }
+  .header-meta { display:flex; align-items:center; gap:12px; font-size:12px; color:var(--text-muted); flex-wrap:wrap; }
+  .dot-live { width:7px; height:7px; background:var(--accent-green); border-radius:50%; display:inline-block; animation:pulse-dot 2s ease-in-out infinite; }
+  @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  #btn-google-login {
+    background: #2756a0; color: white; border: none;
+    border-radius: var(--radius-sm); padding: 5px 12px;
+    font-size: 11px; cursor: pointer; font-family: inherit;
+    transition: background 0.15s;
+  }
+  #btn-google-login:hover { background:#1a3d7a; }
+  #btn-google-login.logged-in { background:var(--accent-green); cursor:default; }
+
+  #btn-refresh {
+    background:none; border:1px solid var(--border-strong);
+    border-radius:var(--radius-sm); padding:4px 10px;
+    font-size:11px; cursor:pointer; color:var(--text-secondary);
+    font-family:inherit; transition:background 0.15s;
+  }
+  #btn-refresh:hover { background:#e8e4dc; }
+
+  /* LAYOUT */
+  #main-grid {
+    display: grid;
+    grid-template-columns: minmax(0,2fr) minmax(0,1fr);
+    gap: 14px;
+    padding: 14px 16px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .col-left, .col-right { display:flex; flex-direction:column; gap:14px; }
+
+  /* CARD */
+  .card { border-radius:var(--radius); border:1px solid var(--border); box-shadow:var(--shadow); padding:14px 16px; background:var(--bg-card); }
+  .card-news   { background:var(--bg-news);   }
+  .card-market { background:var(--bg-market); }
+  .card-mail   { background:var(--bg-mail);   }
+  .card-cal    { background:var(--bg-cal);    }
+  .card-proj   { background:var(--bg-proj);   }
+  .card-meteo  { background:var(--bg-meteo);  }
+
+  .card-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; padding-bottom:9px; border-bottom:1px solid var(--border); }
+  .card-title  { font-size:13px; font-weight:bold; color:var(--text-main); display:flex; align-items:center; gap:6px; }
+  .card-subtitle { font-size:11px; color:var(--text-muted); font-style:italic; }
+  .loading-msg { font-size:12px; color:var(--text-muted); font-style:italic; padding:8px 0; }
+
+  /* NEWS */
+  .news-list { display:flex; flex-direction:column; gap:10px; }
+  .news-item { display:grid; grid-template-columns:auto 1fr auto; gap:8px; align-items:start; padding-bottom:9px; border-bottom:1px solid var(--border); }
+  .news-item:last-child { border-bottom:none; padding-bottom:0; }
+  .news-badge { font-size:9px; font-weight:bold; text-transform:uppercase; letter-spacing:0.05em; padding:2px 6px; border-radius:3px; white-space:nowrap; margin-top:2px; }
+  .badge-bbc  { background:#1a3a6b; color:#d4e4ff; }
+  .badge-rep  { background:#8b1a1a; color:#ffd4d4; }
+  .badge-post { background:#1a4a2a; color:#c8f0d4; }
+  .badge-lrt  { background:#2a4a1a; color:#d4f0c8; }
+  .badge-dday { background:#3a1a6b; color:#d8d4ff; }
+  .badge-t3   { background:#4a3a1a; color:#f0e8c8; }
+  .badge-cnn  { background:#6b1a1a; color:#ffd8d4; }
+  .news-text { font-size:13px; color:var(--text-secondary); line-height:1.45; }
+  .news-text a { color:inherit; text-decoration:none; }
+  .news-text a:hover { color:var(--accent-blue); text-decoration:underline; }
+  .news-time { font-size:10px; color:var(--text-muted); white-space:nowrap; margin-top:2px; }
+
+  /* MERCATI */
+  .market-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .market-card { background:rgba(255,255,255,0.5); border:1px solid var(--border); border-radius:var(--radius-sm); padding:9px 10px; }
+  .mkt-name  { font-size:11px; color:var(--text-muted); margin-bottom:2px; }
+  .mkt-price { font-size:16px; font-weight:bold; color:var(--text-main); }
+  .mkt-chg   { font-size:11px; margin-left:4px; }
+  .chg-up    { color:var(--accent-green); }
+  .chg-down  { color:var(--accent-red);   }
+  .sparkline-wrap { margin-top:5px; height:36px; position:relative; }
+
+  /* EMAIL */
+  .email-list { display:flex; flex-direction:column; gap:9px; }
+  .email-item { padding-bottom:9px; border-bottom:1px solid var(--border); }
+  .email-item:last-child { border-bottom:none; padding-bottom:0; }
+  .email-from { font-size:12px; font-weight:bold; color:var(--text-main); display:flex; align-items:center; gap:5px; }
+  .unread-dot { width:6px; height:6px; background:var(--accent-blue); border-radius:50%; flex-shrink:0; }
+  .email-subj { font-size:12px; color:var(--text-secondary); margin-top:1px; }
+  .email-meta { font-size:10px; color:var(--text-muted); margin-top:1px; font-style:italic; }
+
+  /* CALENDARIO */
+  .cal-list { display:flex; flex-direction:column; gap:9px; }
+  .cal-item { display:flex; gap:10px; align-items:center; padding-bottom:9px; border-bottom:1px solid var(--border); }
+  .cal-item:last-child { border-bottom:none; padding-bottom:0; }
+  .cal-time { background:rgba(39,86,160,0.12); border-radius:var(--radius-sm); padding:5px 8px; text-align:center; min-width:46px; flex-shrink:0; }
+  .cal-hh { font-size:14px; font-weight:bold; color:var(--accent-blue); line-height:1; }
+  .cal-mm { font-size:10px; color:#6080b0; }
+  .cal-evt { font-size:12px; color:var(--text-main); font-weight:bold; }
+  .cal-loc { font-size:11px; color:var(--text-muted); margin-top:2px; }
+
+  /* METEO */
+  .meteo-top { display:flex; align-items:center; gap:14px; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid var(--border); }
+  .meteo-icon { font-size:36px; line-height:1; }
+  .meteo-temp-main { font-size:32px; font-weight:bold; color:var(--text-main); line-height:1; }
+  .meteo-desc { font-size:12px; color:var(--text-secondary); margin-top:3px; }
+  .meteo-details { font-size:11px; color:var(--text-muted); margin-top:2px; }
+  .meteo-forecast { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; }
+  .meteo-day { background:rgba(255,255,255,0.5); border-radius:var(--radius-sm); padding:6px 4px; text-align:center; border:1px solid var(--border); }
+  .meteo-day-name { font-size:10px; color:var(--text-muted); margin-bottom:3px; }
+  .meteo-day-icon { font-size:18px; line-height:1; margin-bottom:3px; }
+  .meteo-day-temp { font-size:11px; color:var(--text-main); font-weight:bold; }
+  .meteo-day-min  { font-size:10px; color:var(--text-muted); }
+
+  /* PROGETTI */
+  .proj-list { display:flex; flex-direction:column; gap:10px; }
+  .proj-item { padding-bottom:9px; border-bottom:1px solid var(--border); }
+  .proj-item:last-child { border-bottom:none; padding-bottom:0; }
+  .proj-header { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px; }
+  .proj-name { font-size:12px; font-weight:bold; color:var(--text-main); }
+  .proj-pct  { font-size:11px; color:var(--text-muted); font-style:italic; }
+  .prog-bar-bg { background:rgba(0,0,0,0.08); border-radius:20px; height:5px; overflow:hidden; }
+  .prog-bar-fill { height:5px; border-radius:20px; transition:width 0.8s ease; }
+
+  /* PANNELLO CONTROLLO */
+  #panel-ctrl { margin:0 16px 16px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px; box-shadow:var(--shadow); }
+  .ctrl-section { margin-bottom:12px; }
+  .ctrl-section:last-child { margin-bottom:0; }
+  .ctrl-label { font-size:11px; font-weight:bold; text-transform:uppercase; letter-spacing:0.07em; color:var(--text-muted); margin-bottom:7px; }
+  .tags-row { display:flex; flex-wrap:wrap; gap:6px; }
+  .ctrl-tag { display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border-radius:20px; font-size:11px; border:1px solid var(--border-strong); background:#e8e4dc; color:var(--text-secondary); cursor:pointer; user-select:none; transition:all 0.15s; font-family:inherit; }
+  .ctrl-tag.active { background:#1a3a6b; color:#d4e4ff; border-color:#1a3a6b; }
+  .ctrl-tag:hover { opacity:0.85; }
+  .ctrl-tag .sym { font-size:13px; opacity:0.7; }
+
+  #footer { text-align:center; padding:10px; font-size:11px; color:var(--text-muted); border-top:1px solid var(--border); font-style:italic; }
+
+  @media (max-width:768px) {
+    #main-grid { grid-template-columns:1fr; }
+    .meteo-forecast { grid-template-columns:repeat(5,1fr); }
+  }
+</style>
+</head>
+<body>
+
+<div id="ticker-bar">
+  <span class="ticker-label">Live</span>
+  <div class="ticker-track" id="ticker-track">
+    <span class="ticker-item"><span class="ticker-name">Caricamento...</span></span>
+  </div>
+</div>
+
+<div id="header">
+  <h1>Fabio's <span>Dashboard</span></h1>
+  <div class="header-meta">
+    <span><span class="dot-live"></span> Live</span>
+    <span id="last-update">--:--</span>
+    <button id="btn-google-login" onclick="avviaLoginGoogle()">🔑 Connetti Gmail</button>
+    <button id="btn-refresh" onclick="refreshAll()">↻ Aggiorna</button>
+  </div>
+</div>
+
+<div id="main-grid">
+  <div class="col-left">
+
+    <div class="card card-news">
+      <div class="card-header">
+        <span class="card-title">📰 Ultime notizie</span>
+        <span class="card-subtitle" id="news-count">Caricamento...</span>
+      </div>
+      <div class="news-list" id="news-list">
+        <p class="loading-msg">Recupero notizie dai feed RSS...</p>
+      </div>
+    </div>
+
+    <div class="card card-market">
+      <div class="card-header">
+        <span class="card-title">📈 Mercati (7 giorni)</span>
+        <span class="card-subtitle">Bitcoin · Ethereum · Solana · Polygon · Avalanche</span>
+      </div>
+      <div class="market-grid" id="market-grid">
+        <p class="loading-msg">Recupero quotazioni crypto...</p>
+      </div>
+    </div>
+
+  </div>
+  <div class="col-right">
+
+    <div class="card card-meteo">
+      <div class="card-header">
+        <span class="card-title">🌤 Meteo Vilnius</span>
+        <span class="card-subtitle">previsioni 5 giorni</span>
+      </div>
+      <div id="meteo-content">
+        <p class="loading-msg">Caricamento meteo...</p>
+      </div>
+    </div>
+
+    <div class="card card-mail">
+      <div class="card-header">
+        <span class="card-title">✉️ Gmail</span>
+        <span class="card-subtitle">fbelli@gmail.com</span>
+      </div>
+      <div class="email-list" id="email-list">
+        <p class="loading-msg">Clicca "Connetti Gmail" per vedere le email.</p>
+      </div>
+    </div>
+
+    <div class="card card-cal">
+      <div class="card-header">
+        <span class="card-title">📅 Agenda oggi</span>
+        <span class="card-subtitle" id="cal-date">...</span>
+      </div>
+      <div class="cal-list" id="cal-list">
+        <p class="loading-msg">Connetti Gmail per vedere il calendario.</p>
+      </div>
+    </div>
+
+    <div class="card card-proj">
+      <div class="card-header">
+        <span class="card-title">🇪🇺 Progetti EU</span>
+        <span class="card-subtitle">
+          <a href="https://fbelli73.github.io/SologustoEuProjects/" target="_blank" style="color:var(--accent-blue);text-decoration:none;">dashboard ↗</a>
+        </span>
+      </div>
+      <div class="proj-list" id="proj-list">
+        <p class="loading-msg">Caricamento...</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="panel-ctrl">
+  <div class="card-header" style="margin-bottom:12px;padding-bottom:9px;">
+    <span class="card-title">⚙️ Pannello di controllo</span>
+    <span class="card-subtitle">Clicca per attivare/disattivare · salvato automaticamente</span>
+  </div>
+  <div class="ctrl-section">
+    <div class="ctrl-label">Fonti news</div>
+    <div class="tags-row" id="tags-news"></div>
+  </div>
+  <div class="ctrl-section">
+    <div class="ctrl-label">Crypto monitorate</div>
+    <div class="tags-row" id="tags-crypto"></div>
+  </div>
+</div>
+
+<div id="footer">
+  Dashboard personale · aggiornamento automatico ogni 30 min ·
+  <a href="https://fbelli73.github.io/SologustoEuProjects/" style="color:var(--accent-blue);">Sologusto EU Projects</a>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+/* ============================================================
+   CONFIGURAZIONE
+   ============================================================ */
+const GOOGLE_CLIENT_ID = '295098854240-0bg8nta9b9d3l73lh5r08k6jejh1t2br.apps.googleusercontent.com';
+const GOOGLE_SCOPES    = 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly';
+const METEO_LAT        = 54.6872;
+const METEO_LON        = 25.2797;
+
+// Proxy CORS per leggere feed RSS (necessario su GitHub Pages)
+const CORS_PROXY = 'https://api.allorigins.win/get?url=';
+
+const REFRESH_INTERVAL = 30 * 60 * 1000; // 30 minuti
+
+const NEWS_SOURCES = [
+  { id:'bbc',  label:'BBC',        badge:'badge-bbc',  active:true,  url:'https://feeds.bbci.co.uk/news/world/rss.xml' },
+  { id:'rep',  label:'Repubblica', badge:'badge-rep',  active:true,  url:'https://www.repubblica.it/rss/homepage/rss2.0.xml' },
+  { id:'post', label:'Il Post',    badge:'badge-post', active:true,  url:'https://www.ilpost.it/feed/' },
+  { id:'lrt',  label:'LRT.lt',    badge:'badge-lrt',  active:true,  url:'https://www.lrt.lt/mediateka/rss/en' },
+  { id:'dday', label:'DDay.it',   badge:'badge-dday', active:true,  url:'https://www.dday.it/rss' },
+  { id:'t3',   label:'T3.com',    badge:'badge-t3',   active:true,  url:'https://www.t3.com/feeds/all' },
+  { id:'cnn',  label:'CNN',       badge:'badge-cnn',  active:false, url:'http://rss.cnn.com/rss/edition.rss' },
+];
+
+// Solo crypto — le azioni via Yahoo Finance sono inaffidabili su GitHub Pages
+const CRYPTOS = [
+  { id:'bitcoin',       sym:'BTC',   name:'Bitcoin',   active:true },
+  { id:'ethereum',      sym:'ETH',   name:'Ethereum',  active:true },
+  { id:'solana',        sym:'SOL',   name:'Solana',    active:true },
+  { id:'matic-network', sym:'MATIC', name:'Polygon',   active:true },
+  { id:'avalanche-2',   sym:'AVAX',  name:'Avalanche', active:true },
+];
+
+/* ---- STATO ---- */
+let googleAccessToken = null;
+let tickerData        = [];
+let sparklineCharts   = {};
+
+/* ============================================================
+   AVVIO
+   ============================================================ */
+document.addEventListener('DOMContentLoaded', () => {
+  caricaPreferenze();
+  creaTagsControllo();
+  aggiornaData();
+  ripristinaTokenGoogle();
+  refreshAll();
+  setInterval(refreshAll, REFRESH_INTERVAL);
+});
+
+async function refreshAll() {
+  const ora = new Date().toLocaleTimeString('it-IT', { hour:'2-digit', minute:'2-digit' });
+  document.getElementById('last-update').textContent = `Aggiornato alle ${ora}`;
+
+  // News, crypto e meteo partono sempre
+  await Promise.allSettled([
+    caricaNews(),
+    caricaCrypto(),
+    caricaMeteo(),
+    caricaProgettiEU(),
+  ]);
+
+  // Gmail e Calendar solo se loggato
+  if (googleAccessToken) {
+    await Promise.allSettled([ caricaGmail(), caricaCalendar() ]);
+  }
+}
+
+/* ============================================================
+   GOOGLE OAUTH
+   ============================================================ */
+function avviaLoginGoogle() {
+  const client = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: GOOGLE_SCOPES,
+    callback: (r) => {
+      if (r.error) { console.error('OAuth error:', r.error); return; }
+      googleAccessToken = r.access_token;
+      localStorage.setItem('gtoken', r.access_token);
+      localStorage.setItem('gtoken_expiry', Date.now() + r.expires_in * 1000);
+      aggiornaBottoneLogin(true);
+      caricaGmail();
+      caricaCalendar();
+    }
+  });
+  client.requestAccessToken();
+}
+
+function ripristinaTokenGoogle() {
+  const token    = localStorage.getItem('gtoken');
+  const scadenza = parseInt(localStorage.getItem('gtoken_expiry') || '0');
+  if (token && Date.now() < scadenza) {
+    googleAccessToken = token;
+    aggiornaBottoneLogin(true);
+  }
+}
+
+function aggiornaBottoneLogin(loggato) {
+  const btn = document.getElementById('btn-google-login');
+  if (loggato) {
+    btn.textContent = '✓ Gmail connessa';
+    btn.classList.add('logged-in');
+    btn.onclick = null;
+  }
+}
+
+/* ============================================================
+   GMAIL
+   ============================================================ */
+async function caricaGmail() {
+  const listEl = document.getElementById('email-list');
+  listEl.innerHTML = '<p class="loading-msg">Caricamento email...</p>';
+  try {
+    const listaRes = await fetch(
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&q=in:inbox',
+      { headers: { Authorization: `Bearer ${googleAccessToken}` } }
+    );
+    const lista = await listaRes.json();
+    if (!lista.messages?.length) {
+      listEl.innerHTML = '<p class="loading-msg">Nessuna email trovata.</p>'; return;
+    }
+    const dettagli = await Promise.all(
+      lista.messages.slice(0,10).map(m =>
+        fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
+          { headers: { Authorization: `Bearer ${googleAccessToken}` } }
+        ).then(r => r.json())
+      )
+    );
+    listEl.innerHTML = dettagli.map(msg => {
+      const h       = msg.payload?.headers ?? [];
+      const from    = h.find(x => x.name==='From')?.value    ?? 'Sconosciuto';
+      const subject = h.find(x => x.name==='Subject')?.value ?? '(nessun oggetto)';
+      const dateStr = h.find(x => x.name==='Date')?.value    ?? '';
+      const nome    = from.replace(/<[^>]+>/g,'').replace(/"/g,'').trim();
+      const nonLetto = msg.labelIds?.includes('UNREAD') ?? false;
+      const data    = dateStr ? new Date(dateStr) : null;
+      const oraStr  = data ? data.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}) : '';
+      return `<div class="email-item">
+        <div class="email-from">${nonLetto?'<span class="unread-dot"></span>':''}${nome.substring(0,30)}${nome.length>30?'...':''}</div>
+        <div class="email-subj">${subject.substring(0,50)}${subject.length>50?'...':''}</div>
+        <div class="email-meta">${oraStr}</div>
+      </div>`;
+    }).join('');
+  } catch(err) {
+    console.error('Gmail error:', err);
+    listEl.innerHTML = '<p class="loading-msg">Errore caricamento email.</p>';
+  }
+}
+
+/* ============================================================
+   GOOGLE CALENDAR
+   ============================================================ */
+async function caricaCalendar() {
+  const listEl = document.getElementById('cal-list');
+  listEl.innerHTML = '<p class="loading-msg">Caricamento calendario...</p>';
+  try {
+    const oggi   = new Date();
+    const inizio = new Date(oggi.getFullYear(), oggi.getMonth(), oggi.getDate());
+    const fine   = new Date(oggi.getFullYear(), oggi.getMonth(), oggi.getDate()+1);
+    const url    = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${inizio.toISOString()}&timeMax=${fine.toISOString()}&singleEvents=true&orderBy=startTime&maxResults=8`;
+    const res    = await fetch(url, { headers: { Authorization: `Bearer ${googleAccessToken}` } });
+    const data   = await res.json();
+    const eventi = data.items ?? [];
+    if (!eventi.length) {
+      listEl.innerHTML = '<p class="loading-msg">Nessun appuntamento oggi 🎉</p>'; return;
+    }
+    listEl.innerHTML = eventi.map(evt => {
+      const inizioEvt = evt.start?.dateTime ? new Date(evt.start.dateTime) : null;
+      const oraStr    = inizioEvt ? inizioEvt.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}) : 'tutto il giorno';
+      let durata = '';
+      if (evt.start?.dateTime && evt.end?.dateTime) {
+        const min = Math.round((new Date(evt.end.dateTime) - new Date(evt.start.dateTime)) / 60000);
+        durata = min>=60 ? `${Math.floor(min/60)}h${min%60>0?min%60+'m':''}` : `${min}m`;
+      }
+      const luogo = evt.location ? evt.location.substring(0,30) : (evt.hangoutLink?'Meet':'');
+      const parti = oraStr.includes(':') ? oraStr.split(':') : [oraStr,''];
+      return `<div class="cal-item">
+        <div class="cal-time"><div class="cal-hh">${parti[0]}</div><div class="cal-mm">${parti[1]} ${durata}</div></div>
+        <div><div class="cal-evt">${evt.summary??'Appuntamento'}</div>${luogo?`<div class="cal-loc">${luogo}</div>`:''}</div>
+      </div>`;
+    }).join('');
+  } catch(err) {
+    console.error('Calendar error:', err);
+    listEl.innerHTML = '<p class="loading-msg">Errore caricamento calendario.</p>';
+  }
+}
+
+/* ============================================================
+   METEO — OpenMeteo (gratuito, no API key)
+   ============================================================ */
+async function caricaMeteo() {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${METEO_LAT}&longitude=${METEO_LON}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=Europe/Vilnius&forecast_days=5`;
+  try {
+    const res  = await fetch(url);
+    const data = await res.json();
+    const curr = data.current;
+    const daily = data.daily;
+    const info  = meteoInfo(curr.weather_code);
+    const giorni = ['Dom','Lun','Mar','Mer','Gio','Ven','Sab'];
+    const forecastHtml = daily.time.slice(0,5).map((d,i) => {
+      const g   = giorni[new Date(d).getDay()];
+      const inf = meteoInfo(daily.weather_code[i]);
+      return `<div class="meteo-day">
+        <div class="meteo-day-name">${i===0?'Oggi':g}</div>
+        <div class="meteo-day-icon">${inf.icon}</div>
+        <div class="meteo-day-temp">${Math.round(daily.temperature_2m_max[i])}°</div>
+        <div class="meteo-day-min">${Math.round(daily.temperature_2m_min[i])}°</div>
+      </div>`;
+    }).join('');
+    document.getElementById('meteo-content').innerHTML = `
+      <div class="meteo-top">
+        <div class="meteo-icon">${info.icon}</div>
+        <div>
+          <div class="meteo-temp-main">${Math.round(curr.temperature_2m)}°C</div>
+          <div class="meteo-desc">${info.desc}</div>
+          <div class="meteo-details">💧 ${curr.relative_humidity_2m}% &nbsp;·&nbsp; 💨 ${Math.round(curr.wind_speed_10m)} km/h</div>
+        </div>
+      </div>
+      <div class="meteo-forecast">${forecastHtml}</div>`;
+  } catch(err) {
+    document.getElementById('meteo-content').innerHTML = '<p class="loading-msg">Errore meteo.</p>';
+  }
+}
+
+function meteoInfo(code) {
+  if (code===0)  return {icon:'☀️', desc:'Sereno'};
+  if (code<=2)   return {icon:'⛅', desc:'Parz. nuvoloso'};
+  if (code<=3)   return {icon:'☁️', desc:'Nuvoloso'};
+  if (code<=49)  return {icon:'🌫️', desc:'Nebbia'};
+  if (code<=59)  return {icon:'🌦️', desc:'Pioggerella'};
+  if (code<=69)  return {icon:'🌧️', desc:'Pioggia'};
+  if (code<=79)  return {icon:'❄️', desc:'Neve'};
+  if (code<=82)  return {icon:'🌦️', desc:'Rovesci'};
+  return                {icon:'⛈️', desc:'Temporale'};
+}
+
+/* ============================================================
+   CRYPTO — CoinGecko (gratuito, no API key, no proxy)
+   ============================================================ */
+async function caricaCrypto() {
+  const attive = CRYPTOS.filter(c => c.active);
+  if (!attive.length) return;
+  const ids = attive.map(c => c.id).join(',');
+  try {
+    const res  = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&sparkline=true&price_change_percentage=7d`);
+    const data = await res.json();
+
+    // Aggiorno ticker
+    data.forEach(coin => {
+      const cfg  = CRYPTOS.find(c => c.id===coin.id);
+      const chg7 = coin.price_change_percentage_7d_in_currency ?? 0;
+      tickerData = tickerData.filter(t => t.sym!==cfg.sym);
+      tickerData.push({ sym:cfg.sym, name:cfg.name, price:formatPrice(coin.current_price), chg:chg7.toFixed(2), spark:coin.sparkline_in_7d?.price??[] });
+    });
+    renderTicker();
+
+    // Mostro le card mercati con le crypto
+    const grid = document.getElementById('market-grid');
+    grid.innerHTML = data.slice(0,4).map(coin => {
+      const cfg  = CRYPTOS.find(c => c.id===coin.id);
+      const chg  = (coin.price_change_percentage_7d_in_currency ?? 0).toFixed(2);
+      const cc   = parseFloat(chg)>=0 ? 'chg-up' : 'chg-down';
+      const s    = parseFloat(chg)>=0 ? '+' : '';
+      return `<div class="market-card">
+        <div class="mkt-name">${cfg.name} (${cfg.sym})</div>
+        <div class="mkt-price">${formatPrice(coin.current_price)}<span class="mkt-chg ${cc}">${s}${chg}%</span></div>
+        <div class="sparkline-wrap"><canvas id="spark-${cfg.sym}" role="img" aria-label="Andamento ${cfg.name}"></canvas></div>
+      </div>`;
+    }).join('');
+
+    // Sparkline
+    data.slice(0,4).forEach(coin => {
+      const cfg   = CRYPTOS.find(c => c.id===coin.id);
+      const spark = coin.sparkline_in_7d?.price ?? [];
+      const chg   = coin.price_change_percentage_7d_in_currency ?? 0;
+      disegnaSparkline(`spark-${cfg.sym}`, spark.length>=2 ? spark : generaSparkDemo(chg), chg>=0);
+    });
+
+  } catch(err) {
+    console.error('CoinGecko error:', err);
+    document.getElementById('market-grid').innerHTML = '<p class="loading-msg">Errore caricamento crypto.</p>';
+  }
+}
+
+/* ============================================================
+   NEWS RSS — via proxy CORS
+   ============================================================ */
+async function caricaNews() {
+  const attive  = NEWS_SOURCES.filter(s => s.active);
+  const notizie = [];
+  const risultati = await Promise.allSettled(attive.map(src => leggiRSS(src)));
+  risultati.forEach(r => { if (r.status==='fulfilled') notizie.push(...r.value); });
+  notizie.sort((a,b) => b.data - a.data);
+
+  const listEl = document.getElementById('news-list');
+  const top    = notizie.slice(0,12);
+
+  if (!top.length) {
+    listEl.innerHTML = '<p class="loading-msg">Nessuna notizia. Controlla la connessione.</p>';
+  } else {
+    listEl.innerHTML = top.map(n => {
+      const ora = n.data instanceof Date && !isNaN(n.data)
+        ? n.data.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}) : '';
+      return `<div class="news-item">
+        <span class="news-badge ${n.src.badge}">${n.src.label}</span>
+        <span class="news-text"><a href="${n.link}" target="_blank" rel="noopener">${n.titolo}</a></span>
+        <span class="news-time">${ora}</span>
+      </div>`;
+    }).join('');
+  }
+
+  document.getElementById('news-count').textContent = `${notizie.length} articoli · ${attive.length} fonti`;
+}
+
+async function leggiRSS(src) {
+  try {
+    const res  = await fetch(`${CORS_PROXY}${encodeURIComponent(src.url)}`);
+    const wrap = await res.json();
+    const xml  = new DOMParser().parseFromString(wrap.contents, 'text/xml');
+    return Array.from(xml.querySelectorAll('item')).slice(0,3).map(item => ({
+      titolo: item.querySelector('title')?.textContent?.trim() ?? '',
+      link:   item.querySelector('link')?.textContent?.trim()  ?? '#',
+      data:   new Date(item.querySelector('pubDate')?.textContent ?? 0),
+      src,
+    }));
+  } catch { return []; }
+}
+
+/* ============================================================
+   PROGETTI EU
+   ============================================================ */
+async function caricaProgettiEU() {
+  try {
+    const res = await fetch('https://fbelli73.github.io/SologustoEuProjects/projects.json', {cache:'no-store'});
+    if (!res.ok) throw new Error();
+    renderProgetti(await res.json());
+  } catch {
+    renderProgetti([
+      {nome:'Progetto Alpha EU', pct:72},
+      {nome:'Progetto Beta FSE', pct:45},
+      {nome:'Report Q2',         pct:20},
+      {nome:'Sologusto Network', pct:88},
+    ]);
+  }
+}
+
+function renderProgetti(progetti) {
+  document.getElementById('proj-list').innerHTML = progetti.map(p => {
+    const c = p.pct>=70 ? '#2d7a4f' : p.pct>=40 ? '#b8860b' : '#c0392b';
+    return `<div class="proj-item">
+      <div class="proj-header"><span class="proj-name">${p.nome}</span><span class="proj-pct">${p.pct}%</span></div>
+      <div class="prog-bar-bg"><div class="prog-bar-fill" style="width:${p.pct}%;background:${c};"></div></div>
+    </div>`;
+  }).join('');
+}
+
+/* ============================================================
+   SPARKLINE
+   ============================================================ */
+function disegnaSparkline(id, dati, pos) {
+  const canvas = document.getElementById(id);
+  if (!canvas) return;
+  if (sparklineCharts[id]) sparklineCharts[id].destroy();
+  const colore = pos ? '#2d7a4f' : '#c0392b';
+  const passo  = Math.max(1, Math.floor(dati.length/30));
+  const camp   = dati.filter((_,i) => i%passo===0);
+  sparklineCharts[id] = new Chart(canvas, {
+    type:'line',
+    data:{ labels:camp.map((_,i)=>i), datasets:[{ data:camp, borderColor:colore, borderWidth:1.5, pointRadius:0, tension:0.3, fill:false }] },
+    options:{ responsive:true, maintainAspectRatio:false, animation:false, plugins:{legend:{display:false},tooltip:{enabled:false}}, scales:{x:{display:false},y:{display:false}} }
+  });
+}
+
+function generaSparkDemo(chg) {
+  let val=100; const res=[];
+  for (let i=0;i<30;i++) { val+=chg/30+(Math.random()-.5)*2; res.push(parseFloat(val.toFixed(2))); }
+  return res;
+}
+
+/* ============================================================
+   PANNELLO CONTROLLO + PREFERENZE
+   ============================================================ */
+function creaTagsControllo() {
+  renderTags('tags-news',   NEWS_SOURCES, 'news');
+  renderTags('tags-crypto', CRYPTOS,      'crypto');
+}
+
+function renderTags(cid, lista, tipo) {
+  document.getElementById(cid).innerHTML = lista.map((item,i) => {
+    const label = item.label ?? item.name ?? item.sym;
+    return `<button class="ctrl-tag${item.active?' active':''}" onclick="toggleSource('${tipo}',${i})">${label} <span class="sym">${item.active?'×':'+'}</span></button>`;
+  }).join('');
+}
+
+function toggleSource(tipo, i) {
+  if (tipo==='news')   NEWS_SOURCES[i].active = !NEWS_SOURCES[i].active;
+  if (tipo==='crypto') CRYPTOS[i].active      = !CRYPTOS[i].active;
+  salvaPreferenze(); creaTagsControllo(); refreshAll();
+}
+
+function salvaPreferenze() {
+  localStorage.setItem('fabio-dashboard-prefs', JSON.stringify({
+    news:    NEWS_SOURCES.map(s => s.active),
+    cryptos: CRYPTOS.map(c => c.active),
+  }));
+}
+
+function caricaPreferenze() {
+  try {
+    const p = JSON.parse(localStorage.getItem('fabio-dashboard-prefs') || 'null');
+    if (!p) return;
+    if (p.news)    p.news.forEach((v,i)    => { if(NEWS_SOURCES[i]) NEWS_SOURCES[i].active=v; });
+    if (p.cryptos) p.cryptos.forEach((v,i) => { if(CRYPTOS[i])      CRYPTOS[i].active=v; });
+  } catch(e) { console.warn('Prefs error:', e); }
+}
+
+function formatPrice(n) {
+  if (n>=1000) return '$'+Math.round(n).toLocaleString('en-US');
+  if (n>=1)    return '$'+n.toFixed(2);
+  return '$'+n.toFixed(5);
+}
+
+function aggiornaData() {
+  document.getElementById('cal-date').textContent = new Date().toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long'});
+}
+</script>
+</body>
+</html>
